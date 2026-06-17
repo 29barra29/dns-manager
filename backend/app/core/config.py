@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     # Webhooks sind serverseitige HTTP-Requests. Private Ziele nur bewusst erlauben.
     WEBHOOK_ALLOW_PRIVATE_URLS: bool = False
 
+    # WebAuthn / Passkeys
+    # RP-ID = die registrierbare Domain (OHNE Schema/Port), z. B. "dns.example.com".
+    # Leer = automatisch aus der Browser-Origin jeder Anfrage ableiten (funktioniert für
+    # localhost wie für die Produktiv-Domain). Nur setzen, wenn die App fest unter EINER
+    # Domain läuft und du die Passkeys daran binden willst (empfohlen für Produktion).
+    WEBAUTHN_RP_ID: Optional[str] = None
+    # Anzeigename im Browser-Dialog. Leer = APP_NAME.
+    WEBAUTHN_RP_NAME: Optional[str] = None
+    # Optionale, zusätzlich erlaubte Origins (Komma-Liste, MIT Schema), z. B.
+    # "https://dns.example.com,https://dns2.example.com". Die Origin der jeweiligen
+    # Anfrage wird automatisch ergänzt; das hier ist nur für Sonderfälle nötig.
+    WEBAUTHN_ORIGIN: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

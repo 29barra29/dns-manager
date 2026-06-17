@@ -1,4 +1,5 @@
 """API routes for authentication and user management."""
+import json
 import logging
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Form, BackgroundTasks
@@ -16,10 +17,12 @@ from app.core.auth import (
     hash_password, verify_password, create_access_token,
     create_password_reset_token, decode_password_reset_token,
     create_two_factor_pending_token, decode_two_factor_pending_token,
+    create_webauthn_challenge_token, decode_webauthn_challenge_token,
     get_current_user, get_admin_user,
     generate_random_password, MIN_PASSWORD_LENGTH,
+    TOKEN_TYPE_WEBAUTHN_REG, TOKEN_TYPE_WEBAUTHN_AUTH,
 )
-from app.models.models import User, UserZoneAccess
+from app.models.models import User, UserZoneAccess, WebAuthnCredential, PanelToken, Webhook
 
 logger = logging.getLogger(__name__)
 
@@ -685,8 +688,11 @@ async def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
 
-    # Remove zone access entries
+    # Alle benutzergebundenen Daten entfernen (keine FK-Constraints im Schema -> manuell).
     await db.execute(sql_delete(UserZoneAccess).where(UserZoneAccess.user_id == user_id))
+    await db.execute(sql_delete(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id))
+    await db.execute(sql_delete(PanelToken).where(PanelToken.user_id == user_id))
+    await db.execute(sql_delete(Webhook).where(Webhook.user_id == user_id))
     await db.delete(user)
     await db.flush()
     return {"message": f"Benutzer '{user.username}' geloescht"}
@@ -870,6 +876,222 @@ async def totp_disable(
     current_user.totp_pending_secret = None
     await db.flush()
     return {"message": "2FA deaktiviert", "user": await _user_to_dict(current_user, db)}
+
+
+# ========================
+# WebAuthn / Passkeys (passwortlose Anmeldung)
+# ========================
+def _set_session_cookie(response: JSONResponse, token: str) -> JSONResponse:
+    """Setzt das HttpOnly-Session-Cookie (gleiche Parameter wie beim Passwort-Login)."""
+    response.set_cookie(
+        key=app_settings.AUTH_COOKIE_NAME,
+        value=token,
+        max_age=app_settings.AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=app_settings.AUTH_COOKIE_SECURE,
+        samesite=app_settings.AUTH_COOKIE_SAMESITE,
+        path="/",
+    )
+    return response
+
+
+class WebAuthnRegisterComplete(BaseModel):
+    name: str = Field(default="Passkey", min_length=1, max_length=100)
+    challenge_token: str = Field(..., min_length=20)
+    credential: dict
+
+
+class WebAuthnLoginComplete(BaseModel):
+    challenge_token: str = Field(..., min_length=20)
+    credential: dict
+
+
+async def _list_user_credentials(db: AsyncSession, user_id: int) -> list[WebAuthnCredential]:
+    result = await db.execute(
+        select(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == user_id)
+        .order_by(WebAuthnCredential.created_at)
+    )
+    return list(result.scalars().all())
+
+
+def _credential_to_dict(c: WebAuthnCredential) -> dict:
+    return {
+        "id": c.id,
+        "name": c.name,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
+    }
+
+
+@router.get("/me/webauthn/credentials")
+async def list_passkeys(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Eigene registrierte Passkeys auflisten."""
+    rows = await _list_user_credentials(db, current_user.id)
+    return {"credentials": [_credential_to_dict(c) for c in rows]}
+
+
+@router.post("/me/webauthn/register/begin")
+async def webauthn_register_begin(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Startet die Passkey-Registrierung: liefert Creation-Options + Challenge-Token."""
+    from app.services import webauthn_service as wa
+
+    existing = await _list_user_credentials(db, current_user.id)
+    options_json, challenge_b64 = wa.build_registration_options(request, current_user, existing)
+    # ensure_user_handle hat den User ggf. mutiert -> persistieren
+    await db.flush()
+    token = create_webauthn_challenge_token(
+        challenge_b64, purpose=TOKEN_TYPE_WEBAUTHN_REG, user_id=current_user.id
+    )
+    return {"options": json.loads(options_json), "challenge_token": token}
+
+
+@router.post("/me/webauthn/register/complete", status_code=201)
+async def webauthn_register_complete(
+    data: WebAuthnRegisterComplete,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Schließt die Passkey-Registrierung ab: verifiziert Attestation und speichert den Public-Key."""
+    from app.services import webauthn_service as wa
+
+    payload = decode_webauthn_challenge_token(data.challenge_token, purpose=TOKEN_TYPE_WEBAUTHN_REG)
+    if not payload or str(payload.get("sub")) != str(current_user.id):
+        raise HTTPException(status_code=400, detail="Ungültiges oder abgelaufenes Challenge-Token")
+
+    try:
+        result = wa.verify_registration(request, data.credential, payload["chal"])
+    except wa.WebAuthnError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Schon registriert? (z. B. doppelter Submit)
+    dup = await db.execute(
+        select(WebAuthnCredential).where(WebAuthnCredential.credential_id == result["credential_id"])
+    )
+    if dup.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Dieser Passkey ist bereits registriert")
+
+    cred = WebAuthnCredential(
+        user_id=current_user.id,
+        name=(data.name or "Passkey").strip()[:100],
+        credential_id=result["credential_id"],
+        public_key=result["public_key"],
+        sign_count=result["sign_count"],
+        transports=result["transports"],
+        aaguid=result["aaguid"],
+    )
+    db.add(cred)
+    await db.flush()
+    logger.info("Passkey '%s' registered for user '%s'", cred.name, current_user.username)
+    return {"message": "Passkey hinzugefügt", "credential": _credential_to_dict(cred)}
+
+
+@router.delete("/me/webauthn/credentials/{cred_id}")
+async def delete_passkey(
+    cred_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Einen eigenen Passkey entfernen."""
+    result = await db.execute(
+        select(WebAuthnCredential).where(
+            WebAuthnCredential.id == cred_id,
+            WebAuthnCredential.user_id == current_user.id,
+        )
+    )
+    cred = result.scalar_one_or_none()
+    if not cred:
+        raise HTTPException(status_code=404, detail="Passkey nicht gefunden")
+    await db.delete(cred)
+    await db.flush()
+    return {"message": "Passkey entfernt"}
+
+
+@router.post("/webauthn/login/begin")
+async def webauthn_login_begin(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Öffentlich: startet die Passkey-Anmeldung (usernameless / discoverable).
+
+    Liefert Request-Options + Challenge-Token. Aus Datenschutzgründen wird keine
+    allow_credentials-Liste ausgegeben (keine Nutzer-/Geräte-Enumeration)."""
+    from app.services import webauthn_service as wa
+
+    options_json, challenge_b64 = wa.build_authentication_options(request, allow_creds=None)
+    token = create_webauthn_challenge_token(challenge_b64, purpose=TOKEN_TYPE_WEBAUTHN_AUTH)
+    return {"options": json.loads(options_json), "challenge_token": token}
+
+
+@router.post("/webauthn/login/complete")
+async def webauthn_login_complete(
+    data: WebAuthnLoginComplete,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Öffentlich: schließt die Passkey-Anmeldung ab und setzt das Session-Cookie."""
+    from app.services import webauthn_service as wa
+    from app.core.login_rate_limit import (
+        is_login_rate_limited,
+        record_failed_login,
+        clear_login_fails,
+    )
+
+    client_ip = request.client.host if request.client else "unknown"
+    if is_login_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.",
+        )
+
+    payload = decode_webauthn_challenge_token(data.challenge_token, purpose=TOKEN_TYPE_WEBAUTHN_AUTH)
+    if not payload:
+        record_failed_login(client_ip)
+        raise HTTPException(status_code=400, detail="Ungültiges oder abgelaufenes Challenge-Token")
+
+    cred_id = wa.extract_credential_id(data.credential)
+    if not cred_id:
+        record_failed_login(client_ip)
+        raise HTTPException(status_code=400, detail="Ungültige Passkey-Antwort")
+
+    result = await db.execute(
+        select(WebAuthnCredential).where(WebAuthnCredential.credential_id == cred_id)
+    )
+    cred = result.scalar_one_or_none()
+    if not cred:
+        record_failed_login(client_ip)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Passkey nicht erkannt")
+
+    result = await db.execute(select(User).where(User.id == cred.user_id))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        record_failed_login(client_ip)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Konto ist deaktiviert")
+
+    try:
+        new_sign_count = wa.verify_authentication(request, data.credential, payload["chal"], cred)
+    except wa.WebAuthnError as exc:
+        record_failed_login(client_ip)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    cred.sign_count = new_sign_count
+    cred.last_used_at = datetime.now(timezone.utc)
+    user.last_login = datetime.now(timezone.utc)
+    await db.flush()
+    clear_login_fails(client_ip)
+
+    token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    user_dict = await _user_to_dict(user, db)
+    response = JSONResponse(content={"user": user_dict})
+    return _set_session_cookie(response, token)
 
 
 # ========================

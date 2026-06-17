@@ -195,6 +195,22 @@ class APIClient {
     totpBegin() { return this.request('POST', '/auth/me/totp/begin', {}); }
     totpEnable(code) { return this.request('POST', '/auth/me/totp/enable', { code }); }
     totpDisable(password, code) { return this.request('POST', '/auth/me/totp/disable', { password, code }); }
+    // WebAuthn / Passkeys – Verwaltung (eingeloggt)
+    getPasskeys() { return this.request('GET', '/auth/me/webauthn/credentials'); }
+    passkeyRegisterBegin() { return this.request('POST', '/auth/me/webauthn/register/begin', {}); }
+    passkeyRegisterComplete(data) { return this.request('POST', '/auth/me/webauthn/register/complete', data); }
+    deletePasskey(id) { return this.request('DELETE', `/auth/me/webauthn/credentials/${id}`); }
+    // WebAuthn / Passkeys – Login (öffentlich, kein Cookie nötig)
+    passkeyLoginBegin() { return this._publicJson('/auth/webauthn/login/begin', {}, 'Passkey-Anmeldung fehlgeschlagen'); }
+    async passkeyLoginComplete(challengeToken, credential) {
+        const data = await this._publicJson(
+            '/auth/webauthn/login/complete',
+            { challenge_token: challengeToken, credential },
+            'Passkey-Anmeldung fehlgeschlagen',
+        );
+        this.setUser(data.user);
+        return data;
+    }
     // Panel-API-Token
     getPanelTokens() { return this.request('GET', '/auth/me/panel-tokens'); }
     createPanelToken(data) { return this.request('POST', '/auth/me/panel-tokens', data); }

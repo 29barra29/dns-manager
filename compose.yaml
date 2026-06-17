@@ -68,6 +68,12 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       DOCS_ENABLED: ${DOCS_ENABLED:-false}
       WEBHOOK_ALLOW_PRIVATE_URLS: ${WEBHOOK_ALLOW_PRIVATE_URLS:-false}
+
+      # Passkeys / WebAuthn – leer = Domain automatisch aus dem Browser-Aufruf ableiten.
+      # Für Produktion bevorzugt die feste Domain setzen (ohne Schema/Port), z. B. dns.example.com.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-}
     volumes:
       # Logo und andere Uploads bleiben bei Updates erhalten
       - backend_uploads:/app/app/static_new/uploads

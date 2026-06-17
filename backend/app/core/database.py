@@ -60,6 +60,7 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) DEFAULT 0",
             "ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)",
             "ALTER TABLE users ADD COLUMN totp_pending_secret VARCHAR(64)",
+            "ALTER TABLE users ADD COLUMN webauthn_user_handle VARCHAR(64)",
         ]:
             try:
                 await session.execute(text(stmt))

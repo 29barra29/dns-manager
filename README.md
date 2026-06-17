@@ -5,7 +5,7 @@ Ein Web-Panel für **PowerDNS Authoritative Server** zum Self-Hosten. Entstanden
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)
 ![PowerDNS](https://img.shields.io/badge/PowerDNS-4.x-orange.svg)
-![Version](https://img.shields.io/badge/version-v2.3.8-blue.svg)
+![Version](https://img.shields.io/badge/version-v2.4.0-blue.svg)
 
 ---
 
@@ -38,6 +38,7 @@ Dieses README gibt nur den Schnellüberblick (Installation, Stack, Troubleshooti
 - **SMTP** – optional für Passwort-Reset und Benachrichtigungen, mit Test-Mail-Funktion.
 - **Welcome-Mail** – optional bei Selbst-Registrierung, Subject und Body mit Platzhaltern (`{username}`, `{login_url}`, …) frei editierbar, Live-Vorschau und Test-Senden in den Einstellungen.
 - **Captcha** – optional gegen Bots/Brute-Force auf Login, Registrierung und Passwort-Reset. Cloudflare Turnstile, hCaptcha oder Google reCAPTCHA v2; Site-Key + Secret werden im Admin-Panel gepflegt, Verifikation läuft serverseitig.
+- **Passkeys / WebAuthn (Anmeldung mit einem Klick)** – passwortlose Anmeldung per Fingerabdruck, Gesicht oder Sicherheitsschlüssel (Touch ID, Face ID, Windows Hello, YubiKey …). Jeder Nutzer kann mehrere Passkeys unter **Einstellungen → API & Sicherheit** anlegen; auf der Login-Seite gibt es dann den Button „Mit Passkey anmelden". Der private Schlüssel verlässt nie das Gerät, der Server speichert nur den öffentlichen Schlüssel – phishing-sicher. Ein Passkey ist bereits starke Multi-Faktor-Anmeldung (Gerät + Biometrie/PIN), daher entfällt beim Passkey-Login die zusätzliche TOTP-Abfrage; Passwort-Login mit TOTP bleibt parallel nutzbar. Domain wird automatisch erkannt, für Produktion per `WEBAUTHN_RP_ID` fixierbar.
 - **Branding** – eigener App-Name, Tagline und Logo (z. B. Firmenlogo); Logo bleibt bei Updates über das Volume `backend_uploads` erhalten.
 - **Mehrsprachige Oberfläche** – Sprach-Dropdown mit Flaggen, aktuell Deutsch, Englisch, Serbisch, Kroatisch, Bosnisch und Ungarisch. Default in der `.env` einstellbar. Fehlt mal ein Key, fällt die UI automatisch auf Englisch zurück; weitere Sprachen kommen per PR an `frontend/src/locales/<code>.json`.
 - **Mobile-tauglich** – einklappbare Sidebar mit Hamburger-Menü, Tabellen scrollen horizontal statt das Layout zu sprengen.
@@ -149,7 +150,7 @@ Manuell auf eine bestimmte Version wechseln:
 ```bash
 cd dns-manager
 git fetch origin --tags --force --prune --prune-tags
-git checkout v2.3.7              # oder: git checkout main && git pull
+git checkout v2.4.0              # oder: git checkout main && git pull
 docker compose build --no-cache backend
 docker compose up -d
 ```
@@ -264,6 +265,19 @@ asyncio.run(reset())
 ## Was ist neu (Changelog)
 
 Hier die letzten Releases. Komplette Historie: [GitHub Releases](https://github.com/29barra29/PowerDNS-PDNS-MANAGER/releases).
+
+### v2.4.0
+
+Passwortlose Anmeldung mit **Passkeys / WebAuthn**. Kein Schema-Bruch – `./update.sh` reicht (eine neue Tabelle `webauthn_credentials` und eine Spalte werden automatisch angelegt, bestehende Logins bleiben unverändert).
+
+**Passkeys (FIDO2 / WebAuthn)**
+
+- **„Mit Passkey anmelden" auf der Login-Seite** – ein Klick, dann Fingerabdruck/Gesicht/PIN oder Sicherheitsschlüssel. Funktioniert usernameless (discoverable credentials), es muss also kein Benutzername getippt werden.
+- **Verwaltung unter Einstellungen → API & Sicherheit** – beliebig viele Passkeys pro Konto anlegen, benennen (z. B. „iPhone", „YubiKey") und einzeln entfernen.
+- **Sicher & standardkonform:** Server speichert nur den öffentlichen Schlüssel; der private Schlüssel verlässt das Gerät nie. Phishing-resistent, an die Domain gebunden. Backend `py_webauthn`, Frontend `@simplewebauthn/browser`.
+- **Stateless-Challenges:** kurzlebige, signierte Challenge-Tokens (gleiches Muster wie der 2FA-Pending-Token) – kein zusätzlicher Server-State.
+- **Rate-Limiting** greift auch beim Passkey-Login. Ein Passkey gilt als starke Multi-Faktor-Anmeldung (Besitz des Geräts + Biometrie/PIN), daher entfällt dabei die zusätzliche TOTP-Abfrage. Der klassische Passwort-Login inklusive TOTP-2FA bleibt unverändert.
+- **Domain-Erkennung automatisch** (localhost wie Produktiv-Domain). Für Produktion per `WEBAUTHN_RP_ID` (ohne Schema/Port) fixierbar – siehe `.env.example`. Passkeys benötigen HTTPS (Ausnahme: `http://localhost` zum Testen).
 
 ### v2.3.8
 

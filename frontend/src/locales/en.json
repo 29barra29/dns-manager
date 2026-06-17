@@ -23,7 +23,11 @@
     "captchaExpired": "Captcha expired - please solve it again.",
     "captchaError": "The captcha could not be loaded. Please reload the page.",
     "totpCode": "Authenticator code (TOTP)",
-    "verifyTotp": "Verify and sign in"
+    "verifyTotp": "Verify and sign in",
+    "orPasskey": "or",
+    "passkeyLogin": "Sign in with passkey",
+    "passkeyWait": "Waiting for your passkey…",
+    "passkeyFailed": "Passkey sign-in failed."
   },
   "login": {
     "title": "Sign in to continue",
@@ -162,7 +166,20 @@
       "webhookFieldUrl": "Target URL",
       "webhookFieldEvents": "Events",
       "addWebhook": "Add webhook",
-      "deleteHookQ": "Delete this webhook?"
+      "deleteHookQ": "Delete this webhook?",
+      "passkeys": "Passkeys (one-click sign-in)",
+      "passkeysHelp": "Sign in with your fingerprint, face or a security key – no password required. Passkeys are bound to this domain and stay on your device.",
+      "passkeyInfoTitle": "How do passkeys work?",
+      "passkeyInfoBody": "A passkey is a cryptographic key pair. The private key never leaves your device (phone, laptop, security key); the server only stores the public key. It is phishing-resistant and cannot be reused across sites. You can register several (e.g. laptop + phone).",
+      "passkeyNameLabel": "Name",
+      "passkeyNamePlaceholder": "e.g. iPhone, YubiKey, work laptop",
+      "addPasskey": "Add passkey",
+      "deletePasskeyQ": "Remove this passkey?",
+      "passkeyNone": "No passkeys registered yet.",
+      "passkeyCreatedLabel": "Added",
+      "passkeyLastUsedLabel": "last used",
+      "passkeyUnsupported": "This browser does not support passkeys.",
+      "passkeyFailed": "Could not register the passkey."
     },
     "servers": "DNS servers",
     "templates": "Templates",

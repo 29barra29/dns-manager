@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Shield, Eye, EyeOff, Loader2, KeyRound } from 'lucide-react'
+import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import api from '../api'
 import LanguageDropdown from '../components/LanguageDropdown'
 import CaptchaWidget from '../components/CaptchaWidget'
@@ -18,6 +19,8 @@ export default function LoginPage() {
     const [twoFactorToken, setTwoFactorToken] = useState('')
     const [totpCode, setTotpCode] = useState('')
     const [captchaToken, setCaptchaToken] = useState('')
+    const [pkBusy, setPkBusy] = useState(false)
+    const [pkSupported, setPkSupported] = useState(false)
     const captchaRef = useRef(null)
     const [appInfo, setAppInfo] = useState({
         app_name: 'PDNS Manager',
@@ -35,7 +38,34 @@ export default function LoginPage() {
         api.getAppInfo().then(setAppInfo).catch(console.error)
     }, [])
 
+    React.useEffect(() => {
+        // Passkeys nur anbieten, wenn der Browser WebAuthn kann.
+        queueMicrotask(() => {
+            try { setPkSupported(browserSupportsWebAuthn()) } catch { setPkSupported(false) }
+        })
+    }, [])
+
     const captchaActive = appInfo.captcha_provider && appInfo.captcha_provider !== 'none' && appInfo.captcha_site_key
+
+    const handlePasskeyLogin = async () => {
+        setError('')
+        setPkBusy(true)
+        try {
+            const { options, challenge_token } = await api.passkeyLoginBegin()
+            const credential = await startAuthentication({ optionsJSON: options })
+            await api.passkeyLoginComplete(challenge_token, credential)
+            navigate('/')
+        } catch (err) {
+            // Abbruch durch den Nutzer (z. B. Dialog geschlossen) ist kein Fehler.
+            if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
+                setError('')
+            } else {
+                setError(err?.message || t('auth.passkeyFailed'))
+            }
+        } finally {
+            setPkBusy(false)
+        }
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault()
@@ -184,6 +214,34 @@ export default function LoginPage() {
                             t('login.submit')
                         )}
                     </button>
+
+                    {pkSupported && !needTwoFactor && (
+                        <>
+                            <div className="flex items-center gap-3 my-1">
+                                <span className="h-px flex-1 bg-border/60" />
+                                <span className="text-xs text-text-muted uppercase tracking-wide">{t('auth.orPasskey')}</span>
+                                <span className="h-px flex-1 bg-border/60" />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handlePasskeyLogin}
+                                disabled={pkBusy || loading}
+                                className="w-full py-2.5 border border-border hover:border-accent/60 hover:bg-bg-hover text-text-primary rounded-lg font-medium text-sm transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {pkBusy ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        {t('auth.passkeyWait')}
+                                    </>
+                                ) : (
+                                    <>
+                                        <KeyRound className="w-4 h-4" />
+                                        {t('auth.passkeyLogin')}
+                                    </>
+                                )}
+                            </button>
+                        </>
+                    )}
 
                     {(appInfo.forgot_password_enabled || appInfo.registration_enabled) && (
                         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-4 text-sm">

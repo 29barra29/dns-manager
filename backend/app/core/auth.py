@@ -31,6 +31,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_PASSWORD_RESET = "password_reset"
 TOKEN_TYPE_2FA_PENDING = "2fa_pending"
+# WebAuthn-Challenges: kurzlebige, signierte Tokens, die die ausgegebene Challenge
+# an die jeweilige Zeremonie binden (gleiches stateless-Pattern wie 2FA-Pending).
+TOKEN_TYPE_WEBAUTHN_REG = "webauthn_reg"
+TOKEN_TYPE_WEBAUTHN_AUTH = "webauthn_auth"
 
 # Panel-API-Bearer, unterscheidbar von zufälligen Zeichen und ACME-Token
 PANEL_TOKEN_PREFIX = "dnsmgr_usr_"
@@ -115,6 +119,38 @@ def decode_two_factor_pending_token(token: str) -> Optional[int]:
         return int(sub)
     except (TypeError, ValueError):
         return None
+
+
+def create_webauthn_challenge_token(
+    challenge_b64: str,
+    *,
+    purpose: str,
+    user_id: Optional[int] = None,
+) -> str:
+    """Kurzlebiger JWT (5 min), der eine WebAuthn-Challenge an die Zeremonie bindet.
+
+    ``purpose`` ist TOKEN_TYPE_WEBAUTHN_REG oder TOKEN_TYPE_WEBAUTHN_AUTH. Bei der
+    Registrierung wird zusätzlich die user_id eingebettet, damit ein Token nicht für
+    ein fremdes Konto wiederverwendet werden kann.
+    """
+    to_encode: dict = {"chal": challenge_b64, "typ": purpose}
+    if user_id is not None:
+        to_encode["sub"] = str(user_id)
+    to_encode["exp"] = datetime.now(timezone.utc) + timedelta(minutes=5)
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_webauthn_challenge_token(token: str, *, purpose: str) -> Optional[dict]:
+    """Validiert ein WebAuthn-Challenge-Token und liefert das Payload (chal, ggf. sub) oder None."""
+    payload = decode_token(token)
+    if not payload:
+        return None
+    typ = payload.get("typ") or payload.get("type")
+    if typ != purpose:
+        return None
+    if not payload.get("chal"):
+        return None
+    return payload
 
 
 def decode_password_reset_token(token: str) -> Optional[int]:

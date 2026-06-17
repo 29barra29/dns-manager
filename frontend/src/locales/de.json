@@ -23,7 +23,11 @@
     "captchaExpired": "Captcha abgelaufen – bitte erneut lösen.",
     "captchaError": "Das Captcha konnte nicht geladen werden. Bitte Seite neu laden.",
     "totpCode": "Authenticator-Code (TOTP)",
-    "verifyTotp": "Prüfen und anmelden"
+    "verifyTotp": "Prüfen und anmelden",
+    "orPasskey": "oder",
+    "passkeyLogin": "Mit Passkey anmelden",
+    "passkeyWait": "Warte auf deinen Passkey …",
+    "passkeyFailed": "Passkey-Anmeldung fehlgeschlagen."
   },
   "login": {
     "title": "Melde dich an, um fortzufahren",
@@ -162,7 +166,20 @@
       "webhookFieldUrl": "Ziel-URL",
       "webhookFieldEvents": "Ereignisse",
       "addWebhook": "Webhook hinzufügen",
-      "deleteHookQ": "Webhook löschen?"
+      "deleteHookQ": "Webhook löschen?",
+      "passkeys": "Passkeys (Anmeldung mit einem Klick)",
+      "passkeysHelp": "Melde dich per Fingerabdruck, Gesicht oder Sicherheitsschlüssel an – ganz ohne Passwort. Passkeys gelten nur für diese Domain und bleiben auf deinem Gerät.",
+      "passkeyInfoTitle": "Wie funktionieren Passkeys?",
+      "passkeyInfoBody": "Ein Passkey ist ein kryptografisches Schlüsselpaar. Der private Schlüssel verlässt nie dein Gerät (Handy, Laptop, Sicherheitsschlüssel); der Server speichert nur den öffentlichen Schlüssel. Phishing-sicher und nicht über Webseiten hinweg wiederverwendbar. Du kannst mehrere anlegen (z. B. Laptop + Handy).",
+      "passkeyNameLabel": "Name",
+      "passkeyNamePlaceholder": "z. B. iPhone, YubiKey, Arbeits-Laptop",
+      "addPasskey": "Passkey hinzufügen",
+      "deletePasskeyQ": "Diesen Passkey entfernen?",
+      "passkeyNone": "Noch keine Passkeys hinterlegt.",
+      "passkeyCreatedLabel": "Hinzugefügt",
+      "passkeyLastUsedLabel": "zuletzt genutzt",
+      "passkeyUnsupported": "Dieser Browser unterstützt keine Passkeys.",
+      "passkeyFailed": "Passkey konnte nicht registriert werden."
     },
     "servers": "DNS-Server",
     "templates": "Vorlagen",

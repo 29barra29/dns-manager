@@ -37,6 +37,9 @@ class User(Base):
     totp_enabled = Column(Boolean, default=False, nullable=False)
     totp_secret = Column(String(64), nullable=True)  # base32, aktiv
     totp_pending_secret = Column(String(64), nullable=True)  # während /auth/.../totp/begin → enable
+    # WebAuthn/Passkey: stabiler, zufälliger User-Handle (KEINE PII wie Username).
+    # Wird beim ersten Passkey-Registrieren gesetzt, base64url-kodiert.
+    webauthn_user_handle = Column(String(64), nullable=True)
 
 
 class UserZoneAccess(Base):
@@ -165,4 +168,32 @@ class Webhook(Base):
     events = Column(JSON, nullable=False, default=list)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
+
+
+class WebAuthnCredential(Base):
+    """Registrierter Passkey / FIDO2-Credential für die passwortlose Anmeldung.
+
+    Wir speichern ausschließlich den ÖFFENTLICHEN Schlüssel (COSE, base64url) plus
+    die Credential-ID. Der private Schlüssel verlässt nie das Gerät des Nutzers
+    (Phone/Laptop/Security-Key). ``sign_count`` dient der Klon-Erkennung gemäß
+    WebAuthn-Spec; viele Plattform-Authenticatoren liefern allerdings konstant 0.
+    """
+
+    __tablename__ = "webauthn_credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    # Menschenlesbares Label zur Wiedererkennung (z. B. "iPhone", "YubiKey").
+    name = Column(String(100), nullable=False)
+    # Credential-ID (base64url) – eindeutig pro Authenticator/Relying-Party.
+    credential_id = Column(String(512), nullable=False, unique=True, index=True)
+    # Öffentlicher COSE-Schlüssel, base64url-kodiert.
+    public_key = Column(Text, nullable=False)
+    sign_count = Column(Integer, default=0, nullable=False)
+    # Transporthinweise vom Browser (["internal"], ["hybrid"], ["usb"], …) – optional.
+    transports = Column(JSON, nullable=True)
+    # Authenticator-Modell (AAGUID, optional, nur informativ).
+    aaguid = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
 
